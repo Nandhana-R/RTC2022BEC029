@@ -1,59 +1,61 @@
-import React, { useState } from 'react';
-import axios from 'axios';
-import './App.css';
-
+// app.js
+const express = require('express');
+const axios = require('axios');
 const cors = require('cors');
+const { updateWindow } = require('./windowManager');
+
+const app = express();
+const PORT = 9876;
+
 app.use(cors());
 
-function App() {
-  const [numberType, setNumberType] = useState('e');
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
+const TYPE_MAP = {
+  p: 'primes',
+  f: 'fibo',
+  e: 'even',
+  r: 'rand'
+};
 
-  const fetchNumbers = async () => {
-    setLoading(true);
-    try {
-      const response = await axios.get(``);
-      setResult(response.data);
-    } catch (error) {
-      console.error('Error fetching numbers:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+const BASE_URL = 'http://20.244.56.144/evaluation-service';
 
-  return (
-    <div className="App">
-      <h1>Average Calculator Microservice</h1>
+app.get('/numbers/:type', async (req, res) => {
+  const type = req.params.type;
 
-      <select value={numberType} onChange={(e) => setNumberType(e.target.value)}>
-        <option value="p">Prime</option>
-        <option value="f">Fibonacci</option>
-        <option value="e">Even</option>
-        <option value="r">Random</option>
-      </select>
+  if (!TYPE_MAP[type]) {
+    return res.status(400).json({ error: 'Invalid number type' });
+  }
 
-      <button onClick={fetchNumbers} disabled={loading}>
-        {loading ? 'Loading...' : 'Fetch Numbers'}
-      </button>
+  const endpoint = `${BASE_URL}/${TYPE_MAP[type]}`;
 
-      {result && (
-        <div className="results">
-          <h3>Previous Window</h3>
-          <p>{JSON.stringify(result.windowPrevState)}</p>
+  let thirdPartyNumbers = [];
 
-          <h3>Current Window</h3>
-          <p>{JSON.stringify(result.windowCurrState)}</p>
+  try {
+    const response = await Promise.race([
+      axios.get(endpoint),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), 500)
+      )
+    ]);
+    thirdPartyNumbers = response.data.numbers || [];
+  } catch (error) {
+    return res.json({
+      windowPrevState: [],
+      windowCurrState: [],
+      numbers: [],
+      avg: 0
+    });
+  }
 
-          <h3>Fetched Numbers</h3>
-          <p>{JSON.stringify(result.numbers)}</p>
+  const { prevState, currState, avg } = updateWindow(thirdPartyNumbers);
 
-          <h3>Average</h3>
-          <p>{result.avg}</p>
-        </div>
-      )}
-    </div>
-  );
-}
+  res.json({
+    windowPrevState: prevState,
+    windowCurrState: currState,
+    numbers: thirdPartyNumbers,
+    avg
+  });
+});
 
-export default App;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
+});
